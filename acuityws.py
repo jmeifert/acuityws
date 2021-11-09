@@ -9,7 +9,7 @@ import pygame.camera
 import pyaudio
 import numpy as np
 
-# Built-in imports
+# Builtin imports
 import os
 from time import sleep
 from datetime import datetime
@@ -19,23 +19,24 @@ from email.mime.text import MIMEText
 import random
 import wave
 
-################################################################ USER CONFIG
-WEBCAM_DEVICE_NAME = "xxxxxxxxxxxxxxxx"                        # Device name of the webcam used for SSTV.
+################################################################ USER CONSTANTS
+WEBCAM_DEVICE_INDEX = 1                                        # Device index of the webcam used for SSTV.
 OPENWEATHERMAP_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"    # Free API key from OpenWeatherMap.org
 OWM_WEATHER_CITY_NAME = "xxxxxxxxxx"                           # OpenWeatherMap location for weather
 SMTP_EMAIL_ADDRESS = "xxxxxxxxxxxxxxxxxx"                      # Sending email address for 2FA
 SMTP_EMAIL_PASSWORD = "xxxxxxxxxxxxxxxx"                       # SMTP password for 2FA
 SMTP_SERVER_ADDRESS = "xxxxxxxxxxxxxxxxxx"                     # SMTP server hostname
 SMTP_SERVER_PORT = 123                                         # SMTP port number
+LOGGING_LEVEL = 0                                              # 0: INFO (Default), 1: WARN, 2: ERROR, 3: FATAL
 
-################################################################ PROGRAM CONSTANTS
+################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
 INPUT_BLOCK_TIME = 0.1
 INPUT_FRAMES_PER_BLOCK = int(RATE*INPUT_BLOCK_TIME)
 DTMF_FREQ_TOLERANCE = 5
-FFT_NOISE_REJECTION = 70
+FFT_NOISE_REJECTION = 80
 DTMF_FREQS = {
     '1': [1209, 697],
     '2': [1336, 697],
@@ -62,11 +63,43 @@ SMS_GATEWAYS = {
     "9" : "@vtext.com",                       # Verizon Wireless
     "0" : "@vmobl.com"                        # Virgin Mobile
 }
+CLIPS = {
+    # General (beeps, menus, errors)
+    "ack" : "audio/builtin/ack.wav",                                     # Acknowledgement beep
+    "end" : "audio/builtin/end.wav",                                     # End transmission beep
+    "mainMenu" : "audio/builtin/menu.mp3",                               # Main menu
+    "moreInfo" : "audio/builtin/moreinfo.mp3",                           # More information about the station
+    "inputConf" : "audio/builtin/inputconf.mp3",                         # Input confirmation
+    "crash" : "audio/builtin/crash.mp3",                                 # Server crash warning
+    "apiError" : "audio/builtin/error.mp3",                              # Non-fatal error warning
+    "singleDigitPrompt" : "audio/builtin/singledigitprompt.mp3",         # Prompt the user for a single digit
+    "loginTFA" : "audio/builtin/voicemail/loginTFA.mp3",                 # Prompt user for two-factor auth code.
+    "invalidTFA" : "audio/builtin/voicemail/tfainvalid.mp3",             # If user's TFA code is invalid.
+    # Voicemail Applet
+    "vmMenu" : "audio/builtin/voicemail/menu.mp3",                       # Voicemail main menu
+    "vmLoginPhonePrompt" : "audio/builtin/voicemail/loginphone.mp3",     # Enter phone number to login
+    "vmLoggedInMenu" : "audio/builtin/voicemail/loggedinmenu.mp3",       # Voicemail logged-in actions menu
+    "vmSendPrompt" : "audio/builtin/voicemail/sendprompt.mp3",           # Phone number to send message to
+    "vmEntryNotFound" : "audio/builtin/voicemail/doesnotexist.mp3",      # If database entry is not found
+    "vmSignUpPhone" : "audio/builtin/voicemail/signupprompt.mp3",        # Prompt to enter phone number to sign up
+    "vmCarrierPrompt" : "audio/builtin/voicemail/carrierprompt.mp3",     # Prompt to select wireless carrier
+    "vmRecording" : "audio/builtin/voicemail/recording.mp3",             # Inform user 30 second recording starts after the beep
+    "vmNoNewMessages" : "audio/builtin/voicemail/nonewmsgs.mp3",         # No new messages in voice mailbox
+    "vmEntryCreated" : "audio/builtin/voicemail/accountcreated.mp3",     # Account created.
+    "accountClosure" : "audio/builtin/voicemail/accountclosure.mp3",     # Account closed.
+    # Sound effects
+    "sfx1" : "audio/builtin/sfx/1.mp3",
+    "sfx2" : "audio/builtin/sfx/2.mp3",
+    "sfx3" : "audio/builtin/sfx/3.mp3",
+    "sfx4" : "audio/builtin/sfx/4.mp3",
+
+
+
+}
 
 ################################################################ SMTP
 def sendMail(recipient, subject, message):
     msg = MIMEText(message)
-
     msg['Subject'] = subject
     msg['From'] = SMTP_EMAIL_ADDRESS
     msg['To'] = recipient
@@ -81,7 +114,7 @@ def sendMail(recipient, subject, message):
         return True
     
     except Exception as e:
-        print(e)
+        log(2, "SMTP toolkit encountered an exception: " + str(e) + ".")
         return False
 
 ################################################################ AUDIO MANIPULATION
@@ -109,22 +142,24 @@ def fftContains(fftArr, freq): # Find a specified frequency in a fourier transfo
     for i in range(freq - DTMF_FREQ_TOLERANCE, freq + DTMF_FREQ_TOLERANCE):
         return (i in fftArr)
 
-def wait_for_DTMF(): # Wait for and return the character represented by a DTMF tone.
+def wait_for_DTMF(timeout = -1): # Wait for and return the character represented by a DTMF tone.
     pa = pyaudio.PyAudio()
-
     # Flush buffer
     stream = pa.open(format=FORMAT, channels=CHANNELS,
             rate=RATE, input=True,
-            frames_per_buffer=1024)
-    data = stream.read(1024)
+            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
+    data = stream.read(INPUT_FRAMES_PER_BLOCK)
     stream.stop_stream()
     stream.close()
-
+    listenerDuration = 0
     while (True):
+        listenerDuration += 1
+        if(listenerDuration > timeout and timeout > 0):
+            return ""
+
         expFrames = []
         dtmfChar = ""
         chunkFFT = []
-
         # Record
         stream = pa.open(format=FORMAT, channels=CHANNELS,
             rate=RATE, input=True,
@@ -140,7 +175,7 @@ def wait_for_DTMF(): # Wait for and return the character represented by a DTMF t
             expFrames.append(struct.unpack("<h", sFrame)[0])
             frameIter += 2
             
-        chunkFFT = np.fft.fft(expFrames, 44100) # Apply FFT
+        chunkFFT = np.fft.fft(expFrames, RATE) # Apply FFT
 
         for i in range(len(chunkFFT)): # Round FFT to real integers
             chunkFFT[i] = int(np.absolute(chunkFFT[i]))
@@ -158,18 +193,20 @@ def wait_for_DTMF(): # Wait for and return the character represented by a DTMF t
                 pa.terminate() # Close pyAudio instance
                 return dtmfChar
 
-def wait_for_no_DTMF(): # Wait for a DTMF tone to end to prevent duplication.
+def wait_for_no_DTMF(timeout = -1): # Wait for a DTMF tone to end to prevent duplication.
     pa = pyaudio.PyAudio()
-    
     # Flush buffer
     stream = pa.open(format=FORMAT, channels=CHANNELS,
             rate=RATE, input=True,
-            frames_per_buffer=1024)
-    data = stream.read(1024)
+            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
+    data = stream.read(INPUT_FRAMES_PER_BLOCK)
     stream.stop_stream()
     stream.close()
-
+    listenerDuration = 0
     while (True):
+        listenerDuration += 1
+        if(listenerDuration > timeout and timeout > 0):
+            return ""
         expFrames = []
         chunkFFT = []
         # Record
@@ -187,7 +224,7 @@ def wait_for_no_DTMF(): # Wait for a DTMF tone to end to prevent duplication.
             expFrames.append(struct.unpack("<h", sFrame)[0])
             frameIter += 2
             
-        chunkFFT = np.fft.fft(expFrames, 44100) # Apply FFT to audio
+        chunkFFT = np.fft.fft(expFrames, RATE) # Apply FFT to audio
 
         for i in range(len(chunkFFT)): # Convert to integers
             chunkFFT[i] = int(np.absolute(chunkFFT[i]))
@@ -220,23 +257,25 @@ def playSound(filename): # Play a sound on the default audio device
     with audioread.audio_open(filename) as f:
         sleep(f.duration + 1)
 
-def getDTMFinput(length): # Get DTMF input of a specified number of ints
+def getDTMFinput(length, experimental_input_method = False): # Get DTMF input of a specified number of ints
     output = ""
     for i in range(length):
         output += wait_for_DTMF()
-        output += " "
-        wait_for_no_DTMF()
-    sleep(1)
-    playSound("audio/builtin/ack.wav")
+        if(experimental_input_method):
+            wait_for_no_DTMF()
+        else:
+            sleep(0.5)
+    sleep(0.5)
+    playSound(CLIPS.get("ack"))
     return output
 
 def getVerifiedInput(length): # Get and confirm DTMF input of a specified number of ints
     while(True):
-        playSound("audio/builtin/ack.wav")
+        playSound(CLIPS.get("ack"))
         echoin = getDTMFinput(length)
-        speak("You sent "+ str(echoin) + ".")
-        playSound("audio/builtin/inputconf.mp3")
-        playSound("audio/builtin/ack.wav")
+        speak("You sent " + " ".join(list(echoin)) + ".")
+        playSound(CLIPS.get("inputConf"))
+        playSound(CLIPS.get("ack"))
         userDTMF = wait_for_DTMF()
         if(userDTMF == "1"):
             return echoin
@@ -254,12 +293,13 @@ def getWeather(place): # Get the weather observation from OWM at a specified loc
 
 def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
     pygame.camera.init()
-    cam = pygame.camera.Camera(WEBCAM_DEVICE_NAME,(640,480))
+    cams = pygame.camera.list_cameras()
+    cam = pygame.camera.Camera(cams[WEBCAM_DEVICE_INDEX],(640,480))
     cam.start()
     sleep(1)  # Let camera start & focus
     img = cam.get_image()
-    pygame.image.save(img,"audio/cache/webcam-cache.jpg")
-    im = Image.open("audio/cache/webcam-cache.jpg")
+    pygame.image.save(img,"audio/cache/cache.jpg")
+    im = Image.open("audio/cache/cache.jpg")
     width, height = im.size
     newsize = (320, 240)
     img = im.resize(newsize)
@@ -267,160 +307,212 @@ def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
     sstv.vox_enabled = True
     sstv.write_wav("audio/cache/cache.wav")
 
+def getDateAndTime(): # Long date and time
+        now = datetime.now()
+        return now.strftime('%Y-%m-%d %H:%M:%S')
+
+def getTime(): # Short time
+        now = datetime.now()
+        return now.strftime("%H:%M")
+
+################################################################ VOICEMAIL TOOLKIT
+def entryExists(userEntry): # Find if an entry exists in the user database
+    with open("db/voicemail/users.db", "r") as f:
+        for i in f.readlines():
+            if(i.strip("\n") == userEntry):
+                return True
+        return False # if not found
+
+def phoneExists(userPhone):
+    with open("db/voicemail/users.db", "r") as f:
+        for i in f.readlines():
+            if(i.split("@")[0] == userPhone):
+                return True
+        return False # if not found
+
+def verifyTFA(userEntry): # Verify a login with two-factor authentication
+    userTFACode = ""
+    for n in range(4):
+        userTFACode += str(random.randint(0,9))
+    sendMail(userEntry, "AcuityWS", "Here's your 2FA code: " + userTFACode)
+    playSound(CLIPS.get("loginTFA"))
+    recTFA = getVerifiedInput(4)
+    if("".join(recTFA.split()) == userTFACode):
+        return True
+    else:
+        return False # if 2fa code not valid
+
+def getEntry(userPhone):
+    with open("db/voicemail/users.db", "r") as f:
+        for i in f.readlines():
+            if(i.split("@")[0] == userPhone):
+                return i.strip("\n")
+        return False # if no matching entry found
+
+def sendVoicemail(recipientNumber, userPhone): # Send a 30-second voice message.
+    with open("db/voicemail/users.db", "r") as f:
+        for i in f.readlines():
+            if(i.split("@")[0] == recipientNumber):
+                playSound(CLIPS.get("vmRecording"))
+                playSound(CLIPS.get("ack"))
+                sleep(1)
+                recordAudio("db/voicemail/messages/" + recipientNumber + " " + userPhone + ".wav", 30)
+                sendMail(i, "AcuityWS", "You have just received a voice message from " + userPhone + ".")
+                playSound(CLIPS.get("ack"))
+
+def readVoicemail(userPhone):
+    voiceMails = os.listdir("db/voicemail/messages")
+    for i in voiceMails:
+        recipient = i.split(" ")[0]
+        sender = i.split(" ")[1].strip(".wav")
+        if(recipient == userPhone):
+            speak("Message from " + " ".join(list(sender)) + ".")
+            playSound("db/voicemail/messages/" + i)
+            sleep(1)
+            os.remove("db/voicemail/messages/" + i)
+    playSound(CLIPS.get("vmNoNewMessages"))
+
+################################################################ LOGGING
+def initLog():
+    try:
+        os.remove("logs/acuityWS.log")
+    except:
+        print("(Log init) No previous log file exists. Creating one now.")
+    with open("logs/acuityWS.log", "w") as f:
+        f.write(getDateAndTime() + " [INFO]  Logging initialized.\n")
+        print(getDateAndTime() + " [INFO]  Logging initialized.")
+
+def log(level, data):
+    output = getDateAndTime() + " "
+    if(level == 0):
+        output += "[INFO]  "
+    elif(level == 1):
+        output += "[WARN]  "
+    elif(level == 2):
+        output += "[ERROR] "
+    else:
+        output += "[FATAL] "
+    output += data
+    with open("logs/acuityws.log", "a") as f:
+        f.write(output + "\n")
+    print(output)
+
 ################################################################ MAIN LOOP
-print("acuityWS Alpha r1.0")
+initLog()
+log(0, "Welcome to AcuityWS.")
 crash_restart = False
 while(True):
     try:
-        # Notify users if a crash happens
+        # Notify listeners if a crash happens
         if(crash_restart): 
-            playSound("audio/builtin/crash.mp3")
+            playSound(CLIPS.get("crash"))
             crash_restart = False
-        
-        # Get and acknowledge initial input
-        print("[INFO] DTMF listener started on default audio device.")
-        recd_dtmf = wait_for_DTMF()
-        now = datetime.now()
-        theTime = now.strftime("%H:%M")
-        print ("[INFO] DTMF tone " + recd_dtmf + " received at " + theTime + ".")
-        sleep(1) # Give incoming transmission time to stop
-        playSound("audio/builtin/ack.wav")
 
-################################################################ MAIN MENU CHOICES
-        if(recd_dtmf == "1"): # Play main menu again
-            playSound("audio/builtin/menu.mp3")
+        # Get and acknowledge initial input
+        log(0, "DTMF listener started on default input device.")
+        recd_dtmf = wait_for_DTMF()
+        log(0, "Tone " + recd_dtmf + " received.")
+        sleep(1) # Give incoming transmission time to stop
+        playSound(CLIPS.get("ack"))
+
+        ################################################################ MAIN MENU CHOICES
+        if(recd_dtmf == "1"): # Play main menu
+            log(0, "Playing main menu.")
+            playSound(CLIPS.get("mainMenu"))
 
         elif(recd_dtmf == "2"): # Get TTS Weather data
-            try:
+            try: 
                 w = getWeather(OWM_WEATHER_CITY_NAME)
-                spokenString = "The time is " + theTime + ". "
+                spokenString = "The time is " + getTime() + ". "
                 spokenString += "Weather " + w.detailed_status + ". Temp " + str(int(w.temperature('fahrenheit').get("temp"))) + " degrees. "
                 spokenString += "Wind " + str(int(w.wind().get("speed") * 1.944)) + " knots. Humidity " + str(w.humidity) + " percent."
+                log(0, "Retrieved weather data: " + spokenString)
                 speak(spokenString)
-            except:
-                playSound("audio/builtin/error.mp3")
+            except Exception as e:
+                log(2, "Weather applet encountered an exception: " + str(e) + ".")
+                playSound(CLIPS.get("apiError"))
 
         elif(recd_dtmf == "3"): # Get Live SSTV
             try:
                 getSSTV()
+                log(0, "Retrieved live SSTV.")
                 playSound("audio/cache/cache.wav")
-            except:
-                playSound("audio/builtin/error.mp3")
+            except Exception as e:
+                log(2, "SSTV applet encountered an exception: " + str(e) + ".")
+                playSound(CLIPS.get("apiError"))
 
-################################################################ VOICEMAIL APPLICATION
+        ################################################################ VOICEMAIL APPLICATION
         elif(recd_dtmf == "4"): # Voice Mail
-            playSound("audio/builtin/voicemail/menu.mp3")
-            playSound("audio/builtin/ack.wav")
+            log(0, "Voicemail applet started.")
+            playSound(CLIPS.get("vmMenu"))
+            playSound(CLIPS.get("ack"))
             userOption = wait_for_DTMF()
             sleep(1) # Wait for transmission to end
             if(userOption == "1"): # Existing User Login
-                playSound("audio/builtin/voicemail/loginphone.mp3")
+                playSound(CLIPS.get("vmLoginPhonePrompt"))
                 userPhone = getVerifiedInput(10) # Get user's phone number
-                userPhone = "".join(userPhone.split()) # Format
-                userAlreadyExists = False
-                with open("db/voicemail/users.db", "r") as f: # Scan DB for number
-                    for i in f.readlines():
-                        if(i.split("@")[0] == userPhone):
-                            userAlreadyExists = True
-                
+                log(0, "User " + userPhone + " is logging in.")
                 # If found run 2FA and login
-                if(userAlreadyExists):
-                    userEntry = i.strip("\n")
-                    userTFACode = ""
-                    for n in range(4):
-                        userTFACode += str(random.randint(0,9)) # Generate and email 2FA code
-                    sendMail(userEntry, "AcuityWS 2FA", "2FA code to log in to voicemail: " + userTFACode)
-                    playSound("audio/builtin/voicemail/loginTFA.mp3")
-                    recTFA = getVerifiedInput(4) # Get code from user
-                    if("".join(recTFA.split()) == userTFACode): # Verify 2FA
+                if(phoneExists(userPhone)):
+                    userEntry = getEntry(userPhone)
+                    if(verifyTFA(userEntry)): # Verify 2FA
+                        log(0, "User " + userPhone + " logged in.")
                         while(True):
-                            # Logged-in Voicemail menu
-                            playSound("audio/builtin/voicemail/loggedinmenu.mp3")
-                            playSound("audio/builtin/ack.wav")
+                            # Logged-in menu
+                            playSound(CLIPS.get("vmLoggedInMenu"))
+                            playSound(CLIPS.get("ack"))
                             userLoggedInOption = wait_for_DTMF() # Get user menu choice
                             sleep(1)
                             if(userLoggedInOption == "1"): # Play received messages
-                                voiceMails = os.listdir("db/voicemail/messages")
-                                for i in voiceMails:
-                                    recipient = i.split(" ")[0]
-                                    sender = i.split(" ")[1].strip(".wav")
-                                    if(recipient == userPhone):
-                                        speak("Message from " + " ".join(sender.split()) + ".")
-                                        playSound("db/voicemail/messages/" + i)
-                                        sleep(1)
-                                        os.remove("db/voicemail/messages/" + i)
-                                playSound("audio/builtin/voicemail/nonewmsgs.mp3")
-
+                                log(0, "User " + userPhone + " played received messages.")
+                                readVoicemail(userPhone)
                             elif(userLoggedInOption == "2"): # Send a message
-                                playSound("audio/builtin/voicemail/sendprompt.mp3")
+                                playSound(CLIPS.get("vmSendPrompt"))
                                 recipientNumber = getVerifiedInput(10)
-                                recipientNumber = "".join(recipientNumber.split())
-                                with open("db/voicemail/users.db", "r") as f:
-                                    for i in f.readlines():
-                                        if(i.split("@")[0] == recipientNumber):
-                                            playSound("audio/builtin/voicemail/recording.mp3")
-                                            playSound("audio/builtin/ack.wav")
-                                            sleep(1)
-                                            recordAudio("db/voicemail/messages/" + recipientNumber + " " + userPhone + ".wav", 30)
-                                            sendMail(i, "AcuityWS Voicemail", "You have just received a voice message from " + userPhone)
-                                            playSound("audio/builtin/ack.wav")
+                                log(0, "User " + userPhone + " sent a message to user " + recipientNumber + ".")
+                                sendVoicemail(recipientNumber, userPhone)
                             else: # Log out
                                 break
-                    else: # If 2FA codes do not match:
-                        playSound("audio/builtin/voicemail/tfainvalid.mp3")
+                    else: # If 2FA codes do not match
+                        log(1, "User " + userPhone + " failed two-factor authentication.")
+                        playSound(CLIPS.get("invalidTFA"))
                 else: # If account login is not found:
-                    playSound("audio/builtin/voicemail/doesnotexist.mp3")
+                    log(1, "User " + userPhone + " attempted to log into an account that does not exist.")
+                    playSound(CLIPS.get("vmEntryNotFound"))
 
             elif(userOption == "2"): # New User Sign Up
-                playSound("audio/builtin/voicemail/signinprompt.mp3")
+                playSound(CLIPS.get("vmSignUpPhone"))
                 userPhone = getVerifiedInput(10) # Get phone
-                playSound("audio/builtin/voicemail/carrierprompt.mp3")
-                playSound("audio/builtin/ack.wav")
+                log(0, "User (NEW) " + userPhone + " is signing up.")
+                playSound(CLIPS.get("vmCarrierPrompt"))
+                playSound(CLIPS.get("ack"))
                 userCarrierID = wait_for_DTMF() # Get carrier
                 sleep(1)
                 userCarrierString = SMS_GATEWAYS.get(userCarrierID)
-                userEntry = "".join(userPhone.split()) + userCarrierString + "\n" # Generate DB entry (contact email)
-                userAlreadyExists = False
-                with open("db/voicemail/users.db", "r") as f: # If already exists notify and stop
-                    for i in f.readlines():
-                        if(i.strip("\n") == userEntry):
-                            userAlreadyExists = True
-                            playSound("audio/builtin/voicemail/alreadyexists.mp3")
-                if(not userAlreadyExists): # If user doesn't exist run 2FA
-                    userTFACode = ""
-                    for n in range(4):
-                        userTFACode += str(random.randint(0,9))
-                    sendMail(userEntry, "AcuityWS 2FA", "2FA code to set up voicemail: " + userTFACode)
-                    playSound("audio/builtin/voicemail/loginTFA.mp3")
-                    recTFA = getVerifiedInput(4)
-                    if("".join(recTFA.split()) == userTFACode): # If 2FA matches add to DB
-                        with open("db/voicemail/users.db", "a") as f:
+                userEntry = userPhone + userCarrierString + "\n" # Generate DB entry (contact email)
+                if(not entryExists(userEntry)): # If user doesn't exist run 2FA
+                    if(verifyTFA(userEntry)):
+                        with open("db/voicemail/users.db", "a") as f: # Create entry for user
+                            log(0, "User " + userPhone + "'s account has been created.")
                             f.write(userEntry)
-                            playSound("audio/builtin/voicemail/accountcreated.mp3")
+                            playSound(CLIPS.get("vmEntryCreated"))
                     else: # If 2FA codes do not match
-                        playSound("audio/builtin/voicemail/tfainvalid.mp3")
+                        log(1, "User " + userPhone + " failed two-factor authentication.")
+                        playSound(CLIPS.get("invalidTFA"))
+                else:
+                    log(1, "User " + userPhone + "'s account already exists.")
+                    playSound(CLIPS.get("vmEntryAlreadyExists"))
 
             elif(userOption == "3"): # Existing User Close Account
-                playSound("audio/builtin/voicemail/loginphone.mp3")
+                playSound(CLIPS.get("vmLoginPhonePrompt"))
                 userPhone = getVerifiedInput(10) # Get phone
-                userPhone = "".join(userPhone.split())
-                userAlreadyExists = False
-                with open("db/voicemail/users.db", "r") as f: 
-                    for i in f.readlines():         
-                        if(i.split("@")[0] == userPhone): 
-                            userAlreadyExists = True
-                            userEntry = i.strip("\n") # Get DB entry for 2FA
-                if(userAlreadyExists): # If acct exists, continue
-                    userTFACode = ""
-                    for n in range(4):
-                        userTFACode += str(random.randint(0,9))
-                    sendMail(userEntry, "AcuityWS 2FA", "2FA code to confirm account closure: " + userTFACode)
-                    playSound("audio/builtin/voicemail/loginTFA.mp3")
-                    recTFA = getVerifiedInput(4)
-                    if("".join(recTFA.split()) == userTFACode): # If 2FA matches delete account
+                log(0, "User " + userPhone + " is closing their account.")
+                if(phoneExists(userPhone)): # If acct exists, continue
+                    userEntry = getEntry(userPhone)
+                    if(verifyTFA(userEntry)): # If 2FA matches delete account
                         with open("db/voicemail/users.db", "r") as f: # Read DB
                             dbContents = f.readlines()
-                            dbContents.remove(userEntry) # Delete account from DB in memory
+                            dbContents.remove(userEntry + "\n") # Delete account from DB in memory
                         with open("db/voicemail/users.db", "w") as f: # Write new DB
                             f.writelines(dbContents)
 
@@ -430,42 +522,48 @@ while(True):
                             sender = i.split(" ")[1].strip(".wav")
                             if(recipient == userPhone): 
                                 os.remove("db/voicemail/messages/" + i)
-
-                        playSound("audio/builtin/voicemail/accountclosure.mp3")
+                        log(0, "User " + userPhone + " has closed their account.")
+                        playSound(CLIPS.get("accountClosure"))
                     else: # If 2FA codes do not match
-                        playSound("audio/builtin/voicemail/tfainvalid.mp3")
+                        log(1, "User " + userPhone + " failed two-factor authentication.")
+                        playSound(CLIPS.get("invalidTFA"))
                 else: # If account doesn't exist
-                    playSound("audio/builtin/voicemail/doesnotexist.mp3")
-################################################################ END VOICEMAIL APPLICATION
+                    log(1, "User " + userPhone + " does not exist and cannot be removed.")
+                    playSound(CLIPS.get("vmEntryNotFound"))
 
-        elif(recd_dtmf == "*"): # SFX Easter Egg :)
-            playSound("audio/builtin/singledigitprompt.mp3")
-            playSound("audio/builtin/ack.wav")
+        ################################################################ MENU CHOICES CONTINUED
+        elif(recd_dtmf == "*"): # SFX Easter Egg
+            log(0, "User is playing a sound effect.")
+            playSound(CLIPS.get("singleDigitPrompt"))
+            playSound(CLIPS.get("ack"))
             userOption = wait_for_DTMF()
             sleep(1)
+            log(0, "Playing sound effect " + userOption)
             if(userOption == "1"):
-                playSound("audio/builtin/sfx/1.mp3")
+                playSound(CLIPS.get("sfx1"))
             elif(userOption == "2"):
-                playSound("audio/builtin/sfx/2.mp3")
+                playSound(CLIPS.get("sfx2"))
             elif(userOption == "3"):
-                playSound("audio/builtin/sfx/3.mp3")
+                playSound(CLIPS.get("sfx3"))
             else:
-                playSound("audio/builtin/sfx/4.mp3")
+                playSound(CLIPS.get("sfx4"))
         
-        elif(recd_dtmf == "#"): # More Information + input help
-            playSound("audio/builtin/moreinfo.mp3")
-            playSound("audio/builtin/inputhelp.mp3")
+        elif(recd_dtmf == "#"): # More Information
+            log(0, "Playing more information.")
+            playSound(CLIPS.get("moreInfo"))
 
         else: # Default to menu (1)
-            playSound("audio/builtin/menu.mp3")
+            log(1, "User choice " + recd_dtmf + " is invalid. Defaulting to main menu.")
+            playSound(CLIPS.get("mainMenu"))
 
         # At the end of every transmission:
-        playSound("audio/builtin/end.wav")
+        playSound(CLIPS.get("end"))
+        log(0, "Transmission ended.")
         sleep(5) # Transmission cooldown
-    
+
+################################################################ END MENU OPTIONS
     # We want the station to be up at all times, so if a fatal error happens, log it and restart.
     except Exception as e:
-        now = datetime.now()
-        print("[FATAL] Server encountered a fatal exception at " + now.strftime('%Y-%m-%d %H:%M:%S') + ": " + str(e) + ". Relaunching...")
+        log(3,"AcuityWS encountered a fatal exception: " + str(e) + "! Restarting...")
         crash_restart = True
         sleep(1) # prevent overload due to error looping
