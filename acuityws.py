@@ -489,12 +489,12 @@ while(True):
                 userCarrierID = wait_for_DTMF() # Get carrier
                 sleep(1)
                 userCarrierString = SMS_GATEWAYS.get(userCarrierID)
-                userEntry = userPhone + userCarrierString + "\n" # Generate DB entry (contact email)
+                userEntry = userPhone + userCarrierString # Generate DB entry (contact email)
                 if(not entryExists(userEntry)): # If user doesn't exist run 2FA
                     if(verifyTFA(userEntry)):
                         with open("db/voicemail/users.db", "a") as f: # Create entry for user
                             log(0, "User " + userPhone + "'s account has been created.")
-                            f.write(userEntry)
+                            f.write(userEntry + "\n")
                             playSound(CLIPS.get("vmEntryCreated"))
                     else: # If 2FA codes do not match
                         log(1, "User " + userPhone + " failed two-factor authentication.")
