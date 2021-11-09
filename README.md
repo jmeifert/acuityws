@@ -3,7 +3,7 @@ A simple, easily modifiable automated weather station for use with radio transce
 Ping it with a DTMF tone to get a response.
 Can be easily customized to fit your needs, supports any combination of DTMF tones from 0-9, * and #.
 
-Features
+# Current features
 
 Main menu (Pre-recorded)
 
