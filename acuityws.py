@@ -20,14 +20,13 @@ import random
 import wave
 
 ################################################################ USER CONSTANTS
-WEBCAM_DEVICE_INDEX = 1                                        # Device index of the webcam used for SSTV.
+WEBCAM_DEVICE_INDEX = 0                                        # Device index of the webcam used for SSTV.
 OPENWEATHERMAP_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"    # Free API key from OpenWeatherMap.org
 OWM_WEATHER_CITY_NAME = "xxxxxxxxxx"                           # OpenWeatherMap location for weather
 SMTP_EMAIL_ADDRESS = "xxxxxxxxxxxxxxxxxx"                      # Sending email address for 2FA
 SMTP_EMAIL_PASSWORD = "xxxxxxxxxxxxxxxx"                       # SMTP password for 2FA
 SMTP_SERVER_ADDRESS = "xxxxxxxxxxxxxxxxxx"                     # SMTP server hostname
 SMTP_SERVER_PORT = 123                                         # SMTP port number
-LOGGING_LEVEL = 0                                              # 0: INFO (Default), 1: WARN, 2: ERROR, 3: FATAL
 
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
@@ -294,6 +293,8 @@ def getWeather(place): # Get the weather observation from OWM at a specified loc
 def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
     pygame.camera.init()
     cams = pygame.camera.list_cameras()
+    log(0, "SSTV applet: " + str(len(cams)) + " cameras found.")
+    log(0, "SSTV applet: Taking a picture with camera " + str(WEBCAM_DEVICE_INDEX) + ": " + cams[WEBCAM_DEVICE_INDEX])
     cam = pygame.camera.Camera(cams[WEBCAM_DEVICE_INDEX],(640,480))
     cam.start()
     sleep(1)  # Let camera start & focus
