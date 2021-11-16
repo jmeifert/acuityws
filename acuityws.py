@@ -19,14 +19,19 @@ from email.mime.text import MIMEText
 import random
 import wave
 
-################################################################ USER CONSTANTS
-WEBCAM_DEVICE_INDEX = 0                                        # Device index of the webcam used for SSTV.
-OPENWEATHERMAP_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"    # Free API key from OpenWeatherMap.org
-OWM_WEATHER_CITY_NAME = "xxxxxxxxxx"                           # OpenWeatherMap location for weather
-SMTP_EMAIL_ADDRESS = "xxxxxxxxxxxxxxxxxx"                      # Sending email address for 2FA
-SMTP_EMAIL_PASSWORD = "xxxxxxxxxxxxxxxx"                       # SMTP password for 2FA
-SMTP_SERVER_ADDRESS = "xxxxxxxxxxxxxxxxxx"                     # SMTP server hostname
-SMTP_SERVER_PORT = 123                                         # SMTP port number
+################################################################ USER CONSTANTS (Read from configuration file)
+with open("acuityWS.conf","r") as f:
+    confLines = []
+    for i in f.readlines():
+        if(i[0] != "#"):
+            confLines.append(i.split("=")[1].strip("\n"))
+WEBCAM_DEVICE_INDEX = int(confLines[0])
+OPENWEATHERMAP_API_KEY = confLines[1]
+OWM_WEATHER_CITY_NAME = confLines[2]
+SMTP_EMAIL_ADDRESS = confLines[3]
+SMTP_EMAIL_PASSWORD = confLines[4]
+SMTP_SERVER_ADDRESS = confLines[5]
+SMTP_SERVER_PORT = int(confLines[6])
 
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
