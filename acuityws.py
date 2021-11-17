@@ -36,11 +36,12 @@ SMTP_SERVER_PORT = int(confLines[6])
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 44100
+SAMPLE_RATE = 12000
 INPUT_BLOCK_TIME = 0.1
-INPUT_FRAMES_PER_BLOCK = int(RATE*INPUT_BLOCK_TIME)
+INPUT_FRAMES_PER_BLOCK = int(SAMPLE_RATE*INPUT_BLOCK_TIME)
 DTMF_FREQ_TOLERANCE = 5
-FFT_NOISE_REJECTION = 80
+FFT_NOISE_REJECTION = 20
+DTMF_RPT_DELAY = 0.3
 DTMF_FREQS = {
     '1': [1209, 697],
     '2': [1336, 697],
@@ -52,6 +53,10 @@ DTMF_FREQS = {
     '8': [1336, 852],
     '9': [1477, 852],
     '0': [1336, 941],
+    'A': [1633, 697],
+    'B': [1633, 770],
+    'C': [1633, 852],
+    'D': [1633, 941],
     '*': [1209, 941],
     '#': [1477, 941],
 } 
@@ -96,13 +101,29 @@ CLIPS = {
     "sfx2" : "audio/builtin/sfx/2.mp3",
     "sfx3" : "audio/builtin/sfx/3.mp3",
     "sfx4" : "audio/builtin/sfx/4.mp3",
-
-
-
+    # Help
+    "inputHelp" : "audio/builtin/inputHelp.mp3"
 }
+BANNER="""
+#---------------------------------------------------#
+|                    _ _      __          _______   |
+|                   (_) |     \ \        / / ____|  |
+|    __ _  ___ _   _ _| |_ _   \ \  /\  / / (___    |
+|   / _` |/ __| | | | | __| | | \ \/  \/ / \___ \   |
+|  | (_| | (__| |_| | | |_| |_| |\  /\  /  ____) |  |
+|   \__,_|\___|\__,_|_|\__|\__, | \/  \/  |_____/   |
+|                           __/ |                   |
+|                          |___/                    |
+|             Version 0.5 (Pre-release)             |
+|       https://github.com/jvmeifert/acuityws       |
+#---------------------------------------------------#
+""" # Fancy banner!
+
+################################################################ FUNCTIONS
 
 ################################################################ SMTP
-def sendMail(recipient, subject, message):
+# Send an e-mail message over SMTP
+def sendMail(recipient, subject, message): 
     msg = MIMEText(message)
     msg['Subject'] = subject
     msg['From'] = SMTP_EMAIL_ADDRESS
@@ -121,16 +142,17 @@ def sendMail(recipient, subject, message):
         log(2, "SMTP toolkit encountered an exception: " + str(e) + ".")
         return False
 
-################################################################ AUDIO MANIPULATION
-def recordAudio(outputFilename, length): # Record to a .wav file for a specified number of seconds
+################################################################ AUDIO
+# Record to a .wav file for a specified number of seconds.
+def recordAudio(outputFilename, length): 
     pa = pyaudio.PyAudio()
     stream = pa.open(format=pyaudio.paInt16,
                     channels=1,
-                    rate=44100,
+                    rate=SAMPLE_RATE,
                     frames_per_buffer=1024,
                     input=True)
     inFrames = []
-    for i in range(0, int(44100 / 1024 * int(length))):
+    for i in range(0, int(SAMPLE_RATE / 1024 * int(length))):
         data = stream.read(1024)
         inFrames.append(data)
     stream.stop_stream()
@@ -139,38 +161,36 @@ def recordAudio(outputFilename, length): # Record to a .wav file for a specified
     with wave.open(outputFilename, 'wb') as f:
         f.setnchannels(1)
         f.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
-        f.setframerate(44100)
+        f.setframerate(SAMPLE_RATE)
         f.writeframes(b''.join(inFrames))
 
-def fftContains(fftArr, freq): # Find a specified frequency in a fourier transform
+# Find if a specified frequency exists in a fourier transform array.
+def fftContains(fftArr, freq): 
     for i in range(freq - DTMF_FREQ_TOLERANCE, freq + DTMF_FREQ_TOLERANCE):
         return (i in fftArr)
 
-def wait_for_DTMF(timeout = -1): # Wait for and return the character represented by a DTMF tone.
-    pa = pyaudio.PyAudio()
-    # Flush buffer
+# Wait for and return the character represented by a DTMF tone, or return "" if timed out.
+def wait_for_DTMF(timeout = -1): 
+    pa = pyaudio.PyAudio() # Open stream on PortAudio
     stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
+            rate=SAMPLE_RATE, input=True,
             frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-    data = stream.read(INPUT_FRAMES_PER_BLOCK)
-    stream.stop_stream()
-    stream.close()
+
+    stream.read(INPUT_FRAMES_PER_BLOCK) # Flush buffer
+
     listenerDuration = 0
     while (True):
+        expFrames = [] # Frames represented by integers
+        chunkFFT = [] # Fast Fourier Transform of the specified chunk
         listenerDuration += 1
-        if(listenerDuration > timeout and timeout > 0):
+        if(listenerDuration > timeout and timeout > 0): # Listener timeout
+            stream.stop_stream()
+            stream.close()
+            pa.terminate()
             return ""
 
-        expFrames = []
-        dtmfChar = ""
-        chunkFFT = []
-        # Record
-        stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
-            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
+        # Record next chunk of audio
         frames = stream.read(INPUT_FRAMES_PER_BLOCK)
-        stream.stop_stream()
-        stream.close()
 
         # Format audio for FFT
         frameIter = 0
@@ -178,102 +198,56 @@ def wait_for_DTMF(timeout = -1): # Wait for and return the character represented
             sFrame = frames[frameIter:frameIter+2]
             expFrames.append(struct.unpack("<h", sFrame)[0])
             frameIter += 2
-            
-        chunkFFT = np.fft.fft(expFrames, RATE) # Apply FFT
-
-        for i in range(len(chunkFFT)): # Round FFT to real integers
-            chunkFFT[i] = int(np.absolute(chunkFFT[i]))
-            
-        noiseCeiling = FFT_NOISE_REJECTION * np.average(chunkFFT) # Calculate noise ceiling
-
-        denoisedFreqs = []
-        for i in range(len(chunkFFT)): # Pull clean frequencies from FFT
-            if (chunkFFT[i] > noiseCeiling):
-                denoisedFreqs.append(i)
-
-        for dtmfChar, dtmfPair in DTMF_FREQS.items(): # Get character from DTMF freqs
-            if (fftContains(denoisedFreqs, dtmfPair[0]) and 
-                fftContains(denoisedFreqs, dtmfPair[1])):
-                pa.terminate() # Close pyAudio instance
-                return dtmfChar
-
-def wait_for_no_DTMF(timeout = -1): # Wait for a DTMF tone to end to prevent duplication.
-    pa = pyaudio.PyAudio()
-    # Flush buffer
-    stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
-            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-    data = stream.read(INPUT_FRAMES_PER_BLOCK)
-    stream.stop_stream()
-    stream.close()
-    listenerDuration = 0
-    while (True):
-        listenerDuration += 1
-        if(listenerDuration > timeout and timeout > 0):
-            return ""
-        expFrames = []
-        chunkFFT = []
-        # Record
-        stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
-            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-        frames = stream.read(INPUT_FRAMES_PER_BLOCK)
-        stream.stop_stream()
-        stream.close()
-
-        # Format audio for FFT
-        frameIter = 0
-        while(frameIter < len(frames) - 1): 
-            sFrame = frames[frameIter:frameIter+2]
-            expFrames.append(struct.unpack("<h", sFrame)[0])
-            frameIter += 2
-            
-        chunkFFT = np.fft.fft(expFrames, RATE) # Apply FFT to audio
-
-        for i in range(len(chunkFFT)): # Convert to integers
-            chunkFFT[i] = int(np.absolute(chunkFFT[i]))
-            
-        noiseCeiling = FFT_NOISE_REJECTION * np.average(chunkFFT) # Calculate noise ceiling
-
-        denoisedFreqs = []
-        for i in range(len(chunkFFT)): # Pull clean frequencies from FFT
-            if (chunkFFT[i] > noiseCeiling):
-                denoisedFreqs.append(i)
         
-        discoveredPairs = 0 # See if there's a tone pair
+        # Apply FFT to formatted array
+        chunkFFT = np.fft.fft(expFrames, SAMPLE_RATE)
+
+        # Convert FFT to real integers
+        for i in range(len(chunkFFT)):
+            chunkFFT[i] = int(np.absolute(chunkFFT[i]))
+        
+        # Calculate noise threshold
+        noiseThreshold = FFT_NOISE_REJECTION * np.average(chunkFFT) 
+
+        denoisedFreqs = []
+        for i in range(len(chunkFFT)): # Denoise FFT array
+            if (chunkFFT[i] > noiseThreshold):
+                denoisedFreqs.append(i)
+
+        # Analyze freqs for pairs and return represented chars
         for dtmfChar, dtmfPair in DTMF_FREQS.items(): 
             if (fftContains(denoisedFreqs, dtmfPair[0]) and 
                 fftContains(denoisedFreqs, dtmfPair[1])):
-                discoveredPairs += 1
-        
-        if(discoveredPairs == 0): # If there's not, then we're done.
-            pa.terminate()
-            break
+                stream.stop_stream()
+                stream.close()
+                pa.terminate() # Close pyAudio instance
+                return dtmfChar
 
-def speak(text): # Speak a line on the default audio device with gTTS
+# Speak a line on the default audio device with gTTS
+def speak(text): 
     tts = gTTS(text=text, lang='en')
     tts.save("audio/cache/cache.mp3")
     playSound("audio/cache/cache.mp3")
 
-def playSound(filename): # Play a sound on the default audio device
+# Play a sound on the default audio device
+def playSound(filename): 
     p = vlc.MediaPlayer(filename)
     p.play()
     with audioread.audio_open(filename) as f:
         sleep(f.duration + 1)
 
-def getDTMFinput(length, experimental_input_method = False): # Get DTMF input of a specified number of ints
+# Get DTMF input of a specified length
+def getDTMFinput(length): 
     output = ""
     for i in range(length):
         output += wait_for_DTMF()
-        if(experimental_input_method):
-            wait_for_no_DTMF()
-        else:
-            sleep(0.5)
-    sleep(0.5)
+        sleep(DTMF_RPT_DELAY)
+    sleep(1 - DTMF_RPT_DELAY)
     playSound(CLIPS.get("ack"))
     return output
 
-def getVerifiedInput(length): # Get and confirm DTMF input of a specified number of ints
+# Get and confirm DTMF input of a specified length
+def getVerifiedInput(length): 
     while(True):
         playSound(CLIPS.get("ack"))
         echoin = getDTMFinput(length)
@@ -289,13 +263,21 @@ def getVerifiedInput(length): # Get and confirm DTMF input of a specified number
             return ""
 
 ################################################################ DATA
-def getWeather(place): # Get the weather observation from OWM at a specified location
+# Get the weather observation from OWM at a specified location
+def getWeatherAtCity(place): 
     owm = OWM(OPENWEATHERMAP_API_KEY)
     mgr = owm.weather_manager()
     observation = mgr.weather_at_place(place)
     return observation.weather
 
-def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
+def getWeatherAtCoords(lat,lon):
+    owm = OWM(OPENWEATHERMAP_API_KEY)
+    mgr = owm.weather_manager()
+    observation = mgr.weather_at_coords(lat,lon)
+    return observation.weather
+
+# Take a picture, encode it to SSTV, and write it to a .wav file.
+def getSSTV(): 
     pygame.camera.init()
     cams = pygame.camera.list_cameras()
     log(0, "SSTV applet: " + str(len(cams)) + " cameras found.")
@@ -313,22 +295,25 @@ def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
     sstv.vox_enabled = True
     sstv.write_wav("audio/cache/cache.wav")
 
-def getDateAndTime(): # Long date and time
+# Long date and time
+def getDateAndTime(): 
         now = datetime.now()
         return now.strftime('%Y-%m-%d %H:%M:%S')
-
-def getTime(): # Short time
+# Short time only
+def getTime():
         now = datetime.now()
         return now.strftime("%H:%M")
 
 ################################################################ VOICEMAIL TOOLKIT
-def entryExists(userEntry): # Find if an entry exists in the user database
+# Find if an entry exists in the user database
+def entryExists(userEntry): 
     with open("db/voicemail/users.db", "r") as f:
         for i in f.readlines():
             if(i.strip("\n") == userEntry):
                 return True
         return False # if not found
 
+# Find if a phone number exists in the user database
 def phoneExists(userPhone):
     with open("db/voicemail/users.db", "r") as f:
         for i in f.readlines():
@@ -336,7 +321,8 @@ def phoneExists(userPhone):
                 return True
         return False # if not found
 
-def verifyTFA(userEntry): # Verify a login with two-factor authentication
+# Verify a login with two-factor authentication
+def verifyTFA(userEntry): 
     userTFACode = ""
     for n in range(4):
         userTFACode += str(random.randint(0,9))
@@ -348,6 +334,7 @@ def verifyTFA(userEntry): # Verify a login with two-factor authentication
     else:
         return False # if 2fa code not valid
 
+# Get a user's database entry from their phone number
 def getEntry(userPhone):
     with open("db/voicemail/users.db", "r") as f:
         for i in f.readlines():
@@ -355,7 +342,8 @@ def getEntry(userPhone):
                 return i.strip("\n")
         return False # if no matching entry found
 
-def sendVoicemail(recipientNumber, userPhone): # Send a 30-second voice message.
+# Send a 30-second voice message.
+def sendVoicemail(recipientNumber, userPhone): 
     with open("db/voicemail/users.db", "r") as f:
         for i in f.readlines():
             if(i.split("@")[0] == recipientNumber):
@@ -366,6 +354,7 @@ def sendVoicemail(recipientNumber, userPhone): # Send a 30-second voice message.
                 sendMail(i, "AcuityWS", "You have just received a voice message from " + userPhone + ".")
                 playSound(CLIPS.get("ack"))
 
+# Read off a user's voicemail
 def readVoicemail(userPhone):
     voiceMails = os.listdir("db/voicemail/messages")
     for i in voiceMails:
@@ -379,6 +368,7 @@ def readVoicemail(userPhone):
     playSound(CLIPS.get("vmNoNewMessages"))
 
 ################################################################ LOGGING
+# Log should be initialized every time the program is started.
 def initLog():
     try:
         os.remove("logs/acuityWS.log")
@@ -388,6 +378,7 @@ def initLog():
         f.write(getDateAndTime() + " [INFO]  Logging initialized.\n")
         print(getDateAndTime() + " [INFO]  Logging initialized.")
 
+# Log an event.
 def log(level, data):
     output = getDateAndTime() + " "
     if(level == 0):
@@ -402,17 +393,18 @@ def log(level, data):
     with open("logs/acuityws.log", "a") as f:
         f.write(output + "\n")
     print(output)
+################################################################ END FUNCTIONS
 
 ################################################################ MAIN LOOP
-initLog()
-log(0, "Welcome to AcuityWS.")
-crash_restart = False
+print(BANNER) # Sign-of-life
+initLog() # Initialize log
+clean_start = True # Indicate this is a clean start
 while(True):
     try:
         # Notify listeners if a crash happens
-        if(crash_restart): 
+        if(not clean_start): 
             playSound(CLIPS.get("crash"))
-            crash_restart = False
+            clean_start = True
 
         # Get and acknowledge initial input
         log(0, "DTMF listener started on default input device.")
@@ -421,14 +413,14 @@ while(True):
         sleep(1) # Give incoming transmission time to stop
         playSound(CLIPS.get("ack"))
 
-        ################################################################ MAIN MENU CHOICES
+################################################################ MAIN MENU CHOICES
         if(recd_dtmf == "1"): # Play main menu
             log(0, "Playing main menu.")
             playSound(CLIPS.get("mainMenu"))
 
         elif(recd_dtmf == "2"): # Get TTS Weather data
             try: 
-                w = getWeather(OWM_WEATHER_CITY_NAME)
+                w = getWeatherAtCity(OWM_WEATHER_CITY_NAME)
                 spokenString = "The time is " + getTime() + ". "
                 spokenString += "Weather " + w.detailed_status + ". Temp " + str(int(w.temperature('fahrenheit').get("temp"))) + " degrees. "
                 spokenString += "Wind " + str(int(w.wind().get("speed") * 1.944)) + " knots. Humidity " + str(w.humidity) + " percent."
@@ -447,7 +439,7 @@ while(True):
                 log(2, "SSTV applet encountered an exception: " + str(e) + ".")
                 playSound(CLIPS.get("apiError"))
 
-        ################################################################ VOICEMAIL APPLICATION
+################################################################ VOICEMAIL APPLICATION
         elif(recd_dtmf == "4"): # Voice Mail
             log(0, "Voicemail applet started.")
             playSound(CLIPS.get("vmMenu"))
@@ -537,7 +529,7 @@ while(True):
                     log(1, "User " + userPhone + " does not exist and cannot be removed.")
                     playSound(CLIPS.get("vmEntryNotFound"))
 
-        ################################################################ MENU CHOICES CONTINUED
+################################################################ MENU CHOICES CONTINUED
         elif(recd_dtmf == "*"): # SFX Easter Egg
             log(0, "User is playing a sound effect.")
             playSound(CLIPS.get("singleDigitPrompt"))
@@ -558,6 +550,10 @@ while(True):
             log(0, "Playing more information.")
             playSound(CLIPS.get("moreInfo"))
 
+        elif(recd_dtmf == "0"): # Help
+            log(0, "Playing help.")
+            playSound(CLIPS.get("help"))
+        
         else: # Default to menu (1)
             log(1, "User choice " + recd_dtmf + " is invalid. Defaulting to main menu.")
             playSound(CLIPS.get("mainMenu"))
@@ -565,11 +561,11 @@ while(True):
         # At the end of every transmission:
         playSound(CLIPS.get("end"))
         log(0, "Transmission ended.")
-        sleep(5) # Transmission cooldown
+        sleep(3) # Transmission cooldown
 
 ################################################################ END MENU OPTIONS
     # We want the station to be up at all times, so if a fatal error happens, log it and restart.
     except Exception as e:
         log(3,"AcuityWS encountered a fatal exception: " + str(e) + "! Restarting...")
-        crash_restart = True
+        clean_start = False
         sleep(1) # prevent overload due to error looping
