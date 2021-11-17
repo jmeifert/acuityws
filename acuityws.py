@@ -552,7 +552,7 @@ while(True):
 
         elif(recd_dtmf == "0"): # Help
             log(0, "Playing help.")
-            playSound(CLIPS.get("help"))
+            playSound(CLIPS.get("inputHelp"))
         
         else: # Default to menu (1)
             log(1, "User choice " + recd_dtmf + " is invalid. Defaulting to main menu.")
