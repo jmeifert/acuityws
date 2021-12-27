@@ -100,6 +100,30 @@ CLIPS = {
 
 
 }
+################################################################ LOGGING
+def initLog():
+    try:
+        os.remove("logs/acuityWS.log")
+    except:
+        print("(Log init) No previous log file exists. Creating one now.")
+    with open("logs/acuityWS.log", "w") as f:
+        f.write(getDateAndTime() + " [INFO]  Logging initialized.\n")
+        print(getDateAndTime() + " [INFO]  Logging initialized.")
+
+def log(level, data):
+    output = getDateAndTime() + " "
+    if(level == 0):
+        output += "[INFO]  "
+    elif(level == 1):
+        output += "[WARN]  "
+    elif(level == 2):
+        output += "[ERROR] "
+    else:
+        output += "[FATAL] "
+    output += data
+    with open("logs/acuityws.log", "a") as f:
+        f.write(output + "\n")
+    print(output)
 
 ################################################################ SMTP
 def sendMail(recipient, subject, message):
@@ -378,30 +402,6 @@ def readVoicemail(userPhone):
             os.remove("db/voicemail/messages/" + i)
     playSound(CLIPS.get("vmNoNewMessages"))
 
-################################################################ LOGGING
-def initLog():
-    try:
-        os.remove("logs/acuityWS.log")
-    except:
-        print("(Log init) No previous log file exists. Creating one now.")
-    with open("logs/acuityWS.log", "w") as f:
-        f.write(getDateAndTime() + " [INFO]  Logging initialized.\n")
-        print(getDateAndTime() + " [INFO]  Logging initialized.")
-
-def log(level, data):
-    output = getDateAndTime() + " "
-    if(level == 0):
-        output += "[INFO]  "
-    elif(level == 1):
-        output += "[WARN]  "
-    elif(level == 2):
-        output += "[ERROR] "
-    else:
-        output += "[FATAL] "
-    output += data
-    with open("logs/acuityws.log", "a") as f:
-        f.write(output + "\n")
-    print(output)
 
 ################################################################ MAIN LOOP
 initLog()

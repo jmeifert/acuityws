@@ -6,3 +6,4 @@ python-vlc
 numpy
 pyaudio
 pillow
+audioread
