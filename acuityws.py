@@ -107,7 +107,7 @@ def log(level: int, data: str):
         elif(level == 1):
             output += " [ WARN ] "
         else:
-            output += " [ ERR. ] "
+            output += " [ ERR! ] "
         output += LOG_PREFIX + " "
         output += data
         if(LOG_TO_FILE):
