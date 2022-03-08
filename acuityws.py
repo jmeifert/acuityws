@@ -14,9 +14,6 @@ import os
 from time import sleep
 from datetime import datetime
 import struct
-import smtplib
-from email.mime.text import MIMEText
-import random
 import wave
 
 ################################################################ USER CONSTANTS (Read from configuration file)
@@ -28,10 +25,6 @@ with open("acuityWS.conf","r") as f:
 WEBCAM_DEVICE_INDEX = int(confLines[0])
 OPENWEATHERMAP_API_KEY = confLines[1]
 OWM_WEATHER_CITY_NAME = confLines[2]
-SMTP_EMAIL_ADDRESS = confLines[3]
-SMTP_EMAIL_PASSWORD = confLines[4]
-SMTP_SERVER_ADDRESS = confLines[5]
-SMTP_SERVER_PORT = int(confLines[6])
 
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
@@ -41,6 +34,7 @@ INPUT_BLOCK_TIME = 0.1
 INPUT_FRAMES_PER_BLOCK = int(RATE*INPUT_BLOCK_TIME)
 DTMF_FREQ_TOLERANCE = 5
 FFT_NOISE_REJECTION = 80
+
 DTMF_FREQS = {
     '1': [1209, 697],
     '2': [1336, 697],
@@ -55,42 +49,18 @@ DTMF_FREQS = {
     '*': [1209, 941],
     '#': [1477, 941],
 } 
-SMS_GATEWAYS = {
-    "1" : "@txt.att.net",                     # AT&T or Cricket
-    "2" : "@sms.myboostmobile.com",           # Boost Mobile
-    "3" : "@mymetropcs.com",                  # MetroPCS
-    "4" : "@msg.fi.google.com",               # Google Fi
-    "5" : "@text.republicwireless.com" ,      # Republic Wireless
-    "6" : "@messaging.sprintpcs.com",         # Sprint
-    "7" : "@tmomail.net",                     # T-Mobile
-    "8" : "@email.uscc.net",                  # US Cellular
-    "9" : "@vtext.com",                       # Verizon Wireless
-    "0" : "@vmobl.com"                        # Virgin Mobile
-}
 CLIPS = {
     # General (beeps, menus, errors)
-    "ack" : "audio/builtin/ack.wav",                                     # Acknowledgement beep
-    "end" : "audio/builtin/end.wav",                                     # End transmission beep
-    "mainMenu" : "audio/builtin/menu.mp3",                               # Main menu
-    "moreInfo" : "audio/builtin/moreinfo.mp3",                           # More information about the station
-    "inputConf" : "audio/builtin/inputconf.mp3",                         # Input confirmation
-    "crash" : "audio/builtin/crash.mp3",                                 # Server crash warning
-    "apiError" : "audio/builtin/error.mp3",                              # Non-fatal error warning
-    "singleDigitPrompt" : "audio/builtin/singledigitprompt.mp3",         # Prompt the user for a single digit
-    "loginTFA" : "audio/builtin/voicemail/loginTFA.mp3",                 # Prompt user for two-factor auth code.
-    "invalidTFA" : "audio/builtin/voicemail/tfainvalid.mp3",             # If user's TFA code is invalid.
-    # Voicemail Applet
-    "vmMenu" : "audio/builtin/voicemail/menu.mp3",                       # Voicemail main menu
-    "vmLoginPhonePrompt" : "audio/builtin/voicemail/loginphone.mp3",     # Enter phone number to login
-    "vmLoggedInMenu" : "audio/builtin/voicemail/loggedinmenu.mp3",       # Voicemail logged-in actions menu
-    "vmSendPrompt" : "audio/builtin/voicemail/sendprompt.mp3",           # Phone number to send message to
-    "vmEntryNotFound" : "audio/builtin/voicemail/doesnotexist.mp3",      # If database entry is not found
-    "vmSignUpPhone" : "audio/builtin/voicemail/signupprompt.mp3",        # Prompt to enter phone number to sign up
-    "vmCarrierPrompt" : "audio/builtin/voicemail/carrierprompt.mp3",     # Prompt to select wireless carrier
-    "vmRecording" : "audio/builtin/voicemail/recording.mp3",             # Inform user 30 second recording starts after the beep
-    "vmNoNewMessages" : "audio/builtin/voicemail/nonewmsgs.mp3",         # No new messages in voice mailbox
-    "vmEntryCreated" : "audio/builtin/voicemail/accountcreated.mp3",     # Account created.
-    "accountClosure" : "audio/builtin/voicemail/accountclosure.mp3",     # Account closed.
+    "ack" : "audio/builtin/ack.wav",                                 # Acknowledgement beep
+    "end" : "audio/builtin/end.wav",                                 # End transmission beep
+    "mainMenu" : "audio/builtin/menu.mp3",                           # Main menu
+    "moreInfo" : "audio/builtin/moreinfo.mp3",                       # More information about the station
+    "inputConf" : "audio/builtin/inputconf.mp3",                     # Input confirmation
+    "crash" : "audio/builtin/crash.mp3",                             # Server crash warning
+    "apiError" : "audio/builtin/error.mp3",                          # Non-fatal error warning
+    "singleDigitPrompt" : "audio/builtin/singledigitprompt.mp3",     # Prompt the user for a single digit
+    "loginTFA" : "audio/builtin/voicemail/loginTFA.mp3",             # Prompt user for two-factor auth code.
+    "invalidTFA" : "audio/builtin/voicemail/tfainvalid.mp3",         # If user's TFA code is invalid.
     # Sound effects
     "sfx1" : "audio/builtin/sfx/1.mp3",
     "sfx2" : "audio/builtin/sfx/2.mp3",
@@ -100,50 +70,53 @@ CLIPS = {
 
 
 }
-################################################################ LOGGING
-def initLog():
+################################################################################ LOGGING
+def getDateAndTime(): # Long date and time for logging
+        now = datetime.now()
+        return now.strftime('%Y-%m-%d %H:%M:%S')
+
+# Logging level (0: INFO, 1: WARN (recommended), 2: ERROR, 3: FATAL, 4: NONE)
+LOG_LEVEL = 0
+#
+# Should the log output to the console?
+LOG_TO_CONSOLE = True
+#
+# Should the log output to a log file?
+LOG_TO_FILE = False
+#
+# Where to generate logfile if need be
+LOG_PATH = "logs/acuityws.log"
+#
+# How the log identifies which module is logging.
+LOG_PREFIX = "(AcuityWS)"
+
+# Initialize log file if needed
+if(LOG_TO_FILE):
     try:
-        os.remove("logs/acuityWS.log")
+        os.remove(LOG_PATH)
     except:
-        print("(Log init) No previous log file exists. Creating one now.")
-    with open("logs/acuityWS.log", "w") as f:
-        f.write(getDateAndTime() + " [INFO]  Logging initialized.\n")
-        print(getDateAndTime() + " [INFO]  Logging initialized.")
+        pass
+    with open(LOG_PATH, "w") as f:
+        f.write(getDateAndTime() + " [  OK  ] " + LOG_PREFIX + " Logging initialized.\n")
 
-def log(level, data):
-    output = getDateAndTime() + " "
-    if(level == 0):
-        output += "[INFO]  "
-    elif(level == 1):
-        output += "[WARN]  "
-    elif(level == 2):
-        output += "[ERROR] "
-    else:
-        output += "[FATAL] "
-    output += data
-    with open("logs/acuityws.log", "a") as f:
-        f.write(output + "\n")
-    print(output)
-
-################################################################ SMTP
-def sendMail(recipient, subject, message):
-    msg = MIMEText(message)
-    msg['Subject'] = subject
-    msg['From'] = SMTP_EMAIL_ADDRESS
-    msg['To'] = recipient
-    
-    try:
-        with smtplib.SMTP(SMTP_SERVER_ADDRESS, SMTP_SERVER_PORT) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(SMTP_EMAIL_ADDRESS, SMTP_EMAIL_PASSWORD)
-            server.sendmail(SMTP_EMAIL_ADDRESS, recipient, msg.as_string())
-            server.quit()
-        return True
-    
-    except Exception as e:
-        log(2, "SMTP toolkit encountered an exception: " + str(e) + ".")
-        return False
+def log(level: int, data: str):
+    if(level >= LOG_LEVEL):
+        output = getDateAndTime()
+        if(level == 0):
+            output += " [  OK  ] "
+        elif(level == 1):
+            output += " [ WARN ] "
+        elif(level == 2):
+            output += " [ CAUT ] "
+        else:
+            output += " [[ ERROR ]] "
+        output += LOG_PREFIX + " "
+        output += data
+        if(LOG_TO_FILE):
+            with open(LOG_PATH, "a") as f:
+                f.write(output + "\n")
+        if(LOG_TO_CONSOLE):
+            print(output)
 
 ################################################################ AUDIO MANIPULATION
 def recordAudio(outputFilename, length): # Record to a .wav file for a specified number of seconds
@@ -221,59 +194,6 @@ def wait_for_DTMF(timeout = -1): # Wait for and return the character represented
                 pa.terminate() # Close pyAudio instance
                 return dtmfChar
 
-def wait_for_no_DTMF(timeout = -1): # Wait for a DTMF tone to end to prevent duplication.
-    pa = pyaudio.PyAudio()
-    # Flush buffer
-    stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
-            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-    data = stream.read(INPUT_FRAMES_PER_BLOCK)
-    stream.stop_stream()
-    stream.close()
-    listenerDuration = 0
-    while (True):
-        listenerDuration += 1
-        if(listenerDuration > timeout and timeout > 0):
-            return ""
-        expFrames = []
-        chunkFFT = []
-        # Record
-        stream = pa.open(format=FORMAT, channels=CHANNELS,
-            rate=RATE, input=True,
-            frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-        frames = stream.read(INPUT_FRAMES_PER_BLOCK)
-        stream.stop_stream()
-        stream.close()
-
-        # Format audio for FFT
-        frameIter = 0
-        while(frameIter < len(frames) - 1): 
-            sFrame = frames[frameIter:frameIter+2]
-            expFrames.append(struct.unpack("<h", sFrame)[0])
-            frameIter += 2
-            
-        chunkFFT = np.fft.fft(expFrames, RATE) # Apply FFT to audio
-
-        for i in range(len(chunkFFT)): # Convert to integers
-            chunkFFT[i] = int(np.absolute(chunkFFT[i]))
-            
-        noiseCeiling = FFT_NOISE_REJECTION * np.average(chunkFFT) # Calculate noise ceiling
-
-        denoisedFreqs = []
-        for i in range(len(chunkFFT)): # Pull clean frequencies from FFT
-            if (chunkFFT[i] > noiseCeiling):
-                denoisedFreqs.append(i)
-        
-        discoveredPairs = 0 # See if there's a tone pair
-        for dtmfChar, dtmfPair in DTMF_FREQS.items(): 
-            if (fftContains(denoisedFreqs, dtmfPair[0]) and 
-                fftContains(denoisedFreqs, dtmfPair[1])):
-                discoveredPairs += 1
-        
-        if(discoveredPairs == 0): # If there's not, then we're done.
-            pa.terminate()
-            break
-
 def speak(text): # Speak a line on the default audio device with gTTS
     tts = gTTS(text=text, lang='en')
     tts.save("audio/cache/cache.mp3")
@@ -285,14 +205,11 @@ def playSound(filename): # Play a sound on the default audio device
     with audioread.audio_open(filename) as f:
         sleep(f.duration + 1)
 
-def getDTMFinput(length, experimental_input_method = False): # Get DTMF input of a specified number of ints
+def getDTMFinput(length): # Get DTMF input of a specified number of ints
     output = ""
     for i in range(length):
         output += wait_for_DTMF()
-        if(experimental_input_method):
-            wait_for_no_DTMF()
-        else:
-            sleep(0.5)
+        sleep(0.5)
     sleep(0.5)
     playSound(CLIPS.get("ack"))
     return output
@@ -345,66 +262,7 @@ def getTime(): # Short time
         now = datetime.now()
         return now.strftime("%H:%M")
 
-################################################################ VOICEMAIL TOOLKIT
-def entryExists(userEntry): # Find if an entry exists in the user database
-    with open("db/voicemail/users.db", "r") as f:
-        for i in f.readlines():
-            if(i.strip("\n") == userEntry):
-                return True
-        return False # if not found
-
-def phoneExists(userPhone):
-    with open("db/voicemail/users.db", "r") as f:
-        for i in f.readlines():
-            if(i.split("@")[0] == userPhone):
-                return True
-        return False # if not found
-
-def verifyTFA(userEntry): # Verify a login with two-factor authentication
-    userTFACode = ""
-    for n in range(4):
-        userTFACode += str(random.randint(0,9))
-    sendMail(userEntry, "AcuityWS", "Here's your 2FA code: " + userTFACode)
-    playSound(CLIPS.get("loginTFA"))
-    recTFA = getVerifiedInput(4)
-    if("".join(recTFA.split()) == userTFACode):
-        return True
-    else:
-        return False # if 2fa code not valid
-
-def getEntry(userPhone):
-    with open("db/voicemail/users.db", "r") as f:
-        for i in f.readlines():
-            if(i.split("@")[0] == userPhone):
-                return i.strip("\n")
-        return False # if no matching entry found
-
-def sendVoicemail(recipientNumber, userPhone): # Send a 30-second voice message.
-    with open("db/voicemail/users.db", "r") as f:
-        for i in f.readlines():
-            if(i.split("@")[0] == recipientNumber):
-                playSound(CLIPS.get("vmRecording"))
-                playSound(CLIPS.get("ack"))
-                sleep(1)
-                recordAudio("db/voicemail/messages/" + recipientNumber + " " + userPhone + ".wav", 30)
-                sendMail(i, "AcuityWS", "You have just received a voice message from " + userPhone + ".")
-                playSound(CLIPS.get("ack"))
-
-def readVoicemail(userPhone):
-    voiceMails = os.listdir("db/voicemail/messages")
-    for i in voiceMails:
-        recipient = i.split(" ")[0]
-        sender = i.split(" ")[1].strip(".wav")
-        if(recipient == userPhone):
-            speak("Message from " + " ".join(list(sender)) + ".")
-            playSound("db/voicemail/messages/" + i)
-            sleep(1)
-            os.remove("db/voicemail/messages/" + i)
-    playSound(CLIPS.get("vmNoNewMessages"))
-
-
 ################################################################ MAIN LOOP
-initLog()
 log(0, "Welcome to AcuityWS.")
 crash_restart = False
 while(True):
@@ -441,103 +299,12 @@ while(True):
         elif(recd_dtmf == "3"): # Get Live SSTV
             try:
                 getSSTV()
-                log(0, "Retrieved live SSTV.")
+                log(0, "Sent live SSTV image.")
                 playSound("audio/cache/cache.wav")
             except Exception as e:
                 log(2, "SSTV applet encountered an exception: " + str(e) + ".")
                 playSound(CLIPS.get("apiError"))
 
-        ################################################################ VOICEMAIL APPLICATION
-        elif(recd_dtmf == "4"): # Voice Mail
-            log(0, "Voicemail applet started.")
-            playSound(CLIPS.get("vmMenu"))
-            playSound(CLIPS.get("ack"))
-            userOption = wait_for_DTMF()
-            sleep(1) # Wait for transmission to end
-            if(userOption == "1"): # Existing User Login
-                playSound(CLIPS.get("vmLoginPhonePrompt"))
-                userPhone = getVerifiedInput(10) # Get user's phone number
-                log(0, "User " + userPhone + " is logging in.")
-                # If found run 2FA and login
-                if(phoneExists(userPhone)):
-                    userEntry = getEntry(userPhone)
-                    if(verifyTFA(userEntry)): # Verify 2FA
-                        log(0, "User " + userPhone + " logged in.")
-                        while(True):
-                            # Logged-in menu
-                            playSound(CLIPS.get("vmLoggedInMenu"))
-                            playSound(CLIPS.get("ack"))
-                            userLoggedInOption = wait_for_DTMF() # Get user menu choice
-                            sleep(1)
-                            if(userLoggedInOption == "1"): # Play received messages
-                                log(0, "User " + userPhone + " played received messages.")
-                                readVoicemail(userPhone)
-                            elif(userLoggedInOption == "2"): # Send a message
-                                playSound(CLIPS.get("vmSendPrompt"))
-                                recipientNumber = getVerifiedInput(10)
-                                log(0, "User " + userPhone + " sent a message to user " + recipientNumber + ".")
-                                sendVoicemail(recipientNumber, userPhone)
-                            else: # Log out
-                                break
-                    else: # If 2FA codes do not match
-                        log(1, "User " + userPhone + " failed two-factor authentication.")
-                        playSound(CLIPS.get("invalidTFA"))
-                else: # If account login is not found:
-                    log(1, "User " + userPhone + " attempted to log into an account that does not exist.")
-                    playSound(CLIPS.get("vmEntryNotFound"))
-
-            elif(userOption == "2"): # New User Sign Up
-                playSound(CLIPS.get("vmSignUpPhone"))
-                userPhone = getVerifiedInput(10) # Get phone
-                log(0, "User (NEW) " + userPhone + " is signing up.")
-                playSound(CLIPS.get("vmCarrierPrompt"))
-                playSound(CLIPS.get("ack"))
-                userCarrierID = wait_for_DTMF() # Get carrier
-                sleep(1)
-                userCarrierString = SMS_GATEWAYS.get(userCarrierID)
-                userEntry = userPhone + userCarrierString # Generate DB entry (contact email)
-                if(not entryExists(userEntry)): # If user doesn't exist run 2FA
-                    if(verifyTFA(userEntry)):
-                        with open("db/voicemail/users.db", "a") as f: # Create entry for user
-                            log(0, "User " + userPhone + "'s account has been created.")
-                            f.write(userEntry + "\n")
-                            playSound(CLIPS.get("vmEntryCreated"))
-                    else: # If 2FA codes do not match
-                        log(1, "User " + userPhone + " failed two-factor authentication.")
-                        playSound(CLIPS.get("invalidTFA"))
-                else:
-                    log(1, "User " + userPhone + "'s account already exists.")
-                    playSound(CLIPS.get("vmEntryAlreadyExists"))
-
-            elif(userOption == "3"): # Existing User Close Account
-                playSound(CLIPS.get("vmLoginPhonePrompt"))
-                userPhone = getVerifiedInput(10) # Get phone
-                log(0, "User " + userPhone + " is closing their account.")
-                if(phoneExists(userPhone)): # If acct exists, continue
-                    userEntry = getEntry(userPhone)
-                    if(verifyTFA(userEntry)): # If 2FA matches delete account
-                        with open("db/voicemail/users.db", "r") as f: # Read DB
-                            dbContents = f.readlines()
-                            dbContents.remove(userEntry + "\n") # Delete account from DB in memory
-                        with open("db/voicemail/users.db", "w") as f: # Write new DB
-                            f.writelines(dbContents)
-
-                        voiceMails = os.listdir("db/voicemail/messages")  # Cleanup unread voicemail
-                        for i in voiceMails:
-                            recipient = i.split(" ")[0]
-                            sender = i.split(" ")[1].strip(".wav")
-                            if(recipient == userPhone): 
-                                os.remove("db/voicemail/messages/" + i)
-                        log(0, "User " + userPhone + " has closed their account.")
-                        playSound(CLIPS.get("accountClosure"))
-                    else: # If 2FA codes do not match
-                        log(1, "User " + userPhone + " failed two-factor authentication.")
-                        playSound(CLIPS.get("invalidTFA"))
-                else: # If account doesn't exist
-                    log(1, "User " + userPhone + " does not exist and cannot be removed.")
-                    playSound(CLIPS.get("vmEntryNotFound"))
-
-        ################################################################ MENU CHOICES CONTINUED
         elif(recd_dtmf == "*"): # SFX Easter Egg
             log(0, "User is playing a sound effect.")
             playSound(CLIPS.get("singleDigitPrompt"))

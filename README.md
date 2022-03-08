@@ -11,10 +11,6 @@ Time & weather data (Text-to-speech)
 
 Live SSTV from webcam or virtual camera (Robot36)
 
-Voice mailboxes by phone number
-
-Account registration & closure, two-factor authentication over SMTP/SMS
-
 Sound Effects Menu
 
 Weather data is retrieved from openweathermap.org. You need to create a free account to get an API key.
