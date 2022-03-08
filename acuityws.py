@@ -18,13 +18,13 @@ import wave
 
 ################################################################ USER CONSTANTS (Read from configuration file)
 with open("acuityWS.conf","r") as f:
-    confLines = []
+    configLines = []
     for i in f.readlines():
-        if(i[0] != "#"):
-            confLines.append(i.split("=")[1].strip("\n"))
-WEBCAM_DEVICE_INDEX = int(confLines[0])
-OPENWEATHERMAP_API_KEY = confLines[1]
-OWM_WEATHER_CITY_NAME = confLines[2]
+        if(i[0] != "#" and i[0] != " "):
+            configLines.append(i.split("=")[1].strip("\n"))
+WEBCAM_DEVICE_INDEX = int(configLines[0])
+OPENWEATHERMAP_API_KEY = configLines[1]
+OWM_WEATHER_CITY_NAME = configLines[2]
 
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
@@ -75,7 +75,7 @@ def getDateAndTime(): # Long date and time for logging
         now = datetime.now()
         return now.strftime('%Y-%m-%d %H:%M:%S')
 
-# Logging level (0: INFO, 1: WARN (recommended), 2: ERROR, 3: FATAL, 4: NONE)
+# Logging level (0: INFO, 1: WARN (recommended), 2: ERROR, 3: NONE)
 LOG_LEVEL = 0
 #
 # Should the log output to the console?
@@ -106,10 +106,8 @@ def log(level: int, data: str):
             output += " [  OK  ] "
         elif(level == 1):
             output += " [ WARN ] "
-        elif(level == 2):
-            output += " [ CAUT ] "
         else:
-            output += " [[ ERROR ]] "
+            output += " [ ERR. ] "
         output += LOG_PREFIX + " "
         output += data
         if(LOG_TO_FILE):
