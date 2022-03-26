@@ -117,31 +117,14 @@ def log(level: int, data: str):
             print(output)
 
 ################################################################ AUDIO MANIPULATION
-def recordAudio(outputFilename, length): # Record to a .wav file for a specified number of seconds
-    pa = pyaudio.PyAudio()
-    stream = pa.open(format=pyaudio.paInt16,
-                    channels=1,
-                    rate=44100,
-                    frames_per_buffer=1024,
-                    input=True)
-    inFrames = []
-    for i in range(0, int(44100 / 1024 * int(length))):
-        data = stream.read(1024)
-        inFrames.append(data)
-    stream.stop_stream()
-    stream.close()
-    pa.terminate()
-    with wave.open(outputFilename, 'wb') as f:
-        f.setnchannels(1)
-        f.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
-        f.setframerate(44100)
-        f.writeframes(b''.join(inFrames))
 
-def fftContains(fftArr, freq): # Find a specified frequency in a fourier transform
+# Find a specified frequency in a fourier transform
+def fftContains(fftArr, freq): 
     for i in range(freq - DTMF_FREQ_TOLERANCE, freq + DTMF_FREQ_TOLERANCE):
         return (i in fftArr)
 
-def wait_for_DTMF(timeout = -1): # Wait for and return the character represented by a DTMF tone.
+# Wait for and return the character represented by a DTMF tone.
+def wait_for_DTMF(timeout = -1): 
     pa = pyaudio.PyAudio()
     # Flush buffer
     stream = pa.open(format=FORMAT, channels=CHANNELS,
@@ -192,18 +175,21 @@ def wait_for_DTMF(timeout = -1): # Wait for and return the character represented
                 pa.terminate() # Close pyAudio instance
                 return dtmfChar
 
-def speak(text): # Speak a line on the default audio device with gTTS
+# Speak a line on the default audio device with gTTS
+def speak(text): 
     tts = gTTS(text=text, lang='en')
     tts.save("audio/cache/cache.mp3")
     playSound("audio/cache/cache.mp3")
 
-def playSound(filename): # Play a sound on the default audio device
+# Play a sound on the default audio device
+def playSound(filename): 
     p = vlc.MediaPlayer(filename)
     p.play()
     with audioread.audio_open(filename) as f:
         sleep(f.duration + 1)
 
-def getDTMFinput(length): # Get DTMF input of a specified number of ints
+# Get DTMF input of a specified number of ints
+def getDTMFinput(length): 
     output = ""
     for i in range(length):
         output += wait_for_DTMF()
@@ -212,7 +198,8 @@ def getDTMFinput(length): # Get DTMF input of a specified number of ints
     playSound(CLIPS.get("ack"))
     return output
 
-def getVerifiedInput(length): # Get and confirm DTMF input of a specified number of ints
+# Get and confirm DTMF input of a specified number of ints
+def getVerifiedInput(length): 
     while(True):
         playSound(CLIPS.get("ack"))
         echoin = getDTMFinput(length)
@@ -228,13 +215,16 @@ def getVerifiedInput(length): # Get and confirm DTMF input of a specified number
             return ""
 
 ################################################################ DATA
-def getWeather(place): # Get the weather observation from OWM at a specified location
+
+# Get the weather observation from OWM at a specified location
+def getWeather(place): 
     owm = OWM(OPENWEATHERMAP_API_KEY)
     mgr = owm.weather_manager()
     observation = mgr.weather_at_place(place)
     return observation.weather
 
-def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
+# Take a picture, encode it to SSTV, and write it to a .wav file.
+def getSSTV(): 
     pygame.camera.init()
     cams = pygame.camera.list_cameras()
     log(0, "SSTV applet: " + str(len(cams)) + " cameras found.")
@@ -252,11 +242,13 @@ def getSSTV(): # Take a picture, encode it to SSTV, and write it to a .wav file.
     sstv.vox_enabled = True
     sstv.write_wav("audio/cache/cache.wav")
 
-def getDateAndTime(): # Long date and time
+# Long date and time
+def getDateAndTime(): 
         now = datetime.now()
         return now.strftime('%Y-%m-%d %H:%M:%S')
 
-def getTime(): # Short time
+# Short time
+def getTime():
         now = datetime.now()
         return now.strftime("%H:%M")
 
