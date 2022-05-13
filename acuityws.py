@@ -18,13 +18,14 @@ import wave
 
 ################################################################ USER CONSTANTS (Read from configuration file)
 with open("acuityWS.conf","r") as f:
-    configLines = []
+    conf_lines = []
     for i in f.readlines():
         if(i[0] != "#" and i[0] != " "):
-            configLines.append(i.split("=")[1].strip("\n"))
-WEBCAM_DEVICE_INDEX = int(configLines[0])
-OPENWEATHERMAP_API_KEY = configLines[1]
-OWM_WEATHER_CITY_NAME = configLines[2]
+            conf_lines.append(i.split("=")[1].strip("\n"))
+WEBCAM_DEVICE_INDEX = int(conf_lines[0])
+OPENWEATHERMAP_API_KEY = conf_lines[1]
+WEATHER_LAT = float(conf_lines[2])
+WEATHER_LON = float(conf_lines[3])
 
 ################################################################ PROGRAM CONSTANTS (Should not need to be modified)
 FORMAT = pyaudio.paInt16
@@ -220,10 +221,10 @@ def get_verified_input(length):
 ################################################################ DATA
 
 # Get the weather observation from OWM at a specified location
-def getWeather(place): 
+def getWeather(lat, lon): 
     owm = OWM(OPENWEATHERMAP_API_KEY)
     mgr = owm.weather_manager()
-    observation = mgr.weather_at_place(place)
+    observation = mgr.weather_at_coords(lat, lon)
     return observation.weather
 
 # Take a picture, encode it to SSTV, and write it to a .wav file.
@@ -279,7 +280,7 @@ while(True):
 
         elif(recd_dtmf == "2"): # Get TTS Weather data
             try: 
-                w = getWeather(OWM_WEATHER_CITY_NAME)
+                w = getWeather(WEATHER_LAT, WEATHER_LON)
                 spokenString = "The time is " + getTime() + ". "
                 spokenString += "Weather " + w.detailed_status + ". Temp " + str(int(w.temperature('fahrenheit').get("temp"))) + " degrees. "
                 spokenString += "Wind " + str(int(w.wind().get("speed") * 1.944)) + " knots. Humidity " + str(w.humidity) + " percent."
