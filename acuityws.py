@@ -35,6 +35,7 @@ INPUT_FRAMES_PER_BLOCK = int(RATE*INPUT_BLOCK_TIME)
 DTMF_FREQ_TOLERANCE = 5
 FFT_NOISE_REJECTION = 80
 
+# DTMF frequency pairs
 DTMF_FREQS = {
     '1': [1209, 697],
     '2': [1336, 697],
@@ -48,30 +49,30 @@ DTMF_FREQS = {
     '0': [1336, 941],
     '*': [1209, 941],
     '#': [1477, 941],
-} 
-CLIPS = {
-    # General (beeps, menus, errors)
-    "ack" : "audio/builtin/ack.wav",                                 # Acknowledgement beep
-    "end" : "audio/builtin/end.wav",                                 # End transmission beep
-    "mainMenu" : "audio/builtin/menu.mp3",                           # Main menu
-    "moreInfo" : "audio/builtin/moreinfo.mp3",                       # More information about the station
-    "inputConf" : "audio/builtin/inputconf.mp3",                     # Input confirmation
-    "crash" : "audio/builtin/crash.mp3",                             # Server crash warning
-    "apiError" : "audio/builtin/error.mp3",                          # Non-fatal error warning
-    "singleDigitPrompt" : "audio/builtin/singledigitprompt.mp3",     # Prompt the user for a single digit
-    "loginTFA" : "audio/builtin/voicemail/loginTFA.mp3",             # Prompt user for two-factor auth code.
-    "invalidTFA" : "audio/builtin/voicemail/tfainvalid.mp3",         # If user's TFA code is invalid.
-    # Sound effects
-    "sfx1" : "audio/builtin/sfx/1.mp3",
-    "sfx2" : "audio/builtin/sfx/2.mp3",
-    "sfx3" : "audio/builtin/sfx/3.mp3",
-    "sfx4" : "audio/builtin/sfx/4.mp3",
-
-
-
 }
+
+# Sound clips
+CLIPS = {
+    "ack"          : "audio/builtin/ack.wav",         # Acknowledgement beep
+    "end"          : "audio/builtin/end.wav",         # End transmission beep
+    "main_menu"    : "audio/builtin/menu.mp3",        # Main menu
+    "more_info"    : "audio/builtin/moreinfo.mp3",    # More information about the station
+    "input_conf"   : "audio/builtin/inputconf.mp3",   # Input confirmation
+    "input_prompt" : "audio/builtin/inputprompt.mp3", # Input prompt
+    "crash"        : "audio/builtin/crash.mp3",       # Server crash warning
+    "api_error"    : "audio/builtin/error.mp3",       # Non-fatal error warning
+}
+
+# Sound effects
+SFX = {
+    "1" : "audio/sfx/1.mp3",
+    "2" : "audio/sfx/2.mp3",
+    "3" : "audio/sfx/3.mp3",
+    "4" : "audio/sfx/4.mp3",
+}
+
 ################################################################################ LOGGING
-def getDateAndTime(): # Long date and time for logging
+def get_date_and_time(): # Long date and time for logging
         now = datetime.now()
         return now.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -97,11 +98,11 @@ if(LOG_TO_FILE):
     except:
         pass
     with open(LOG_PATH, "w") as f:
-        f.write(getDateAndTime() + " [  OK  ] " + LOG_PREFIX + " Logging initialized.\n")
+        f.write(get_date_and_time() + " [  OK  ] " + LOG_PREFIX + " Logging initialized.\n")
 
 def log(level: int, data: str):
     if(level >= LOG_LEVEL):
-        output = getDateAndTime()
+        output = get_date_and_time()
         if(level == 0):
             output += " [  OK  ] "
         elif(level == 1):
@@ -119,18 +120,18 @@ def log(level: int, data: str):
 ################################################################ AUDIO MANIPULATION
 
 # Find a specified frequency in a fourier transform
-def fftContains(fftArr, freq): 
+def fft_contains(fft_arr, freq): 
     for i in range(freq - DTMF_FREQ_TOLERANCE, freq + DTMF_FREQ_TOLERANCE):
-        return (i in fftArr)
+        return (i in fft_arr)
 
 # Wait for and return the character represented by a DTMF tone.
-def wait_for_DTMF(timeout = -1): 
+def get_next_dtmf(timeout = -1): 
     pa = pyaudio.PyAudio()
     # Flush buffer
     stream = pa.open(format=FORMAT, channels=CHANNELS,
             rate=RATE, input=True,
             frames_per_buffer=INPUT_FRAMES_PER_BLOCK)
-    data = stream.read(INPUT_FRAMES_PER_BLOCK)
+    stream.read(INPUT_FRAMES_PER_BLOCK)
     stream.stop_stream()
     stream.close()
     listenerDuration = 0
@@ -170,43 +171,45 @@ def wait_for_DTMF(timeout = -1):
                 denoisedFreqs.append(i)
 
         for dtmfChar, dtmfPair in DTMF_FREQS.items(): # Get character from DTMF freqs
-            if (fftContains(denoisedFreqs, dtmfPair[0]) and 
-                fftContains(denoisedFreqs, dtmfPair[1])):
+            if (fft_contains(denoisedFreqs, dtmfPair[0]) and 
+                fft_contains(denoisedFreqs, dtmfPair[1])):
                 pa.terminate() # Close pyAudio instance
                 return dtmfChar
 
 # Speak a line on the default audio device with gTTS
-def speak(text): 
+def speak_line(text): 
     tts = gTTS(text=text, lang='en')
     tts.save("audio/cache/cache.mp3")
-    playSound("audio/cache/cache.mp3")
+    play_sound_file("audio/cache/cache.mp3")
 
 # Play a sound on the default audio device
-def playSound(filename): 
+def play_sound_file(filename): 
     p = vlc.MediaPlayer(filename)
     p.play()
     with audioread.audio_open(filename) as f:
         sleep(f.duration + 1)
 
 # Get DTMF input of a specified number of ints
-def getDTMFinput(length): 
+def get_dtmf_input():
+    play_sound_file(CLIPS.get("input_prompt"))
     output = ""
-    for i in range(length):
-        output += wait_for_DTMF()
+    while(i != "#"):
+        output += get_next_dtmf()
         sleep(0.5)
     sleep(0.5)
-    playSound(CLIPS.get("ack"))
+    play_sound_file(CLIPS.get("ack"))
     return output
 
 # Get and confirm DTMF input of a specified number of ints
-def getVerifiedInput(length): 
+def get_verified_input(length): 
     while(True):
-        playSound(CLIPS.get("ack"))
-        echoin = getDTMFinput(length)
-        speak("You sent " + " ".join(list(echoin)) + ".")
-        playSound(CLIPS.get("inputConf"))
-        playSound(CLIPS.get("ack"))
-        userDTMF = wait_for_DTMF()
+        play_sound_file(CLIPS.get("input_prompt"))
+        play_sound_file(CLIPS.get("ack"))
+        echoin = get_dtmf_input(length)
+        speak_line("You sent " + " ".join(list(echoin)) + ".")
+        play_sound_file(CLIPS.get("input_conf"))
+        play_sound_file(CLIPS.get("ack"))
+        userDTMF = get_next_dtmf()
         if(userDTMF == "1"):
             return echoin
         elif(userDTMF == "2"):
@@ -243,7 +246,7 @@ def getSSTV():
     sstv.write_wav("audio/cache/cache.wav")
 
 # Long date and time
-def getDateAndTime(): 
+def get_date_and_time(): 
         now = datetime.now()
         return now.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -259,20 +262,20 @@ while(True):
     try:
         # Notify listeners if a crash happens
         if(crash_restart): 
-            playSound(CLIPS.get("crash"))
+            play_sound_file(CLIPS.get("crash"))
             crash_restart = False
 
         # Get and acknowledge initial input
         log(0, "DTMF listener started on default input device.")
-        recd_dtmf = wait_for_DTMF()
+        recd_dtmf = get_next_dtmf()
         log(0, "Tone " + recd_dtmf + " received.")
         sleep(1) # Give incoming transmission time to stop
-        playSound(CLIPS.get("ack"))
+        play_sound_file(CLIPS.get("ack"))
 
         ################################################################ MAIN MENU CHOICES
         if(recd_dtmf == "1"): # Play main menu
             log(0, "Playing main menu.")
-            playSound(CLIPS.get("mainMenu"))
+            play_sound_file(CLIPS.get("main_menu"))
 
         elif(recd_dtmf == "2"): # Get TTS Weather data
             try: 
@@ -281,46 +284,44 @@ while(True):
                 spokenString += "Weather " + w.detailed_status + ". Temp " + str(int(w.temperature('fahrenheit').get("temp"))) + " degrees. "
                 spokenString += "Wind " + str(int(w.wind().get("speed") * 1.944)) + " knots. Humidity " + str(w.humidity) + " percent."
                 log(0, "Retrieved weather data: " + spokenString)
-                speak(spokenString)
+                speak_line(spokenString)
             except Exception as e:
                 log(2, "Weather applet encountered an exception: " + str(e) + ".")
-                playSound(CLIPS.get("apiError"))
+                play_sound_file(CLIPS.get("api_error"))
 
-        elif(recd_dtmf == "3"): # Get Live SSTV
+        elif(recd_dtmf == "3"): # Get live SSTV
             try:
                 getSSTV()
                 log(0, "Sent live SSTV image.")
-                playSound("audio/cache/cache.wav")
+                play_sound_file("audio/cache/cache.wav")
             except Exception as e:
                 log(2, "SSTV applet encountered an exception: " + str(e) + ".")
-                playSound(CLIPS.get("apiError"))
+                play_sound_file(CLIPS.get("api_error"))
 
         elif(recd_dtmf == "*"): # SFX Easter Egg
             log(0, "User is playing a sound effect.")
-            playSound(CLIPS.get("singleDigitPrompt"))
-            playSound(CLIPS.get("ack"))
-            userOption = wait_for_DTMF()
+            userOption = get_dtmf_input()
             sleep(1)
             log(0, "Playing sound effect " + userOption)
             if(userOption == "1"):
-                playSound(CLIPS.get("sfx1"))
+                play_sound_file(SFX.get("1"))
             elif(userOption == "2"):
-                playSound(CLIPS.get("sfx2"))
+                play_sound_file(SFX.get("2"))
             elif(userOption == "3"):
-                playSound(CLIPS.get("sfx3"))
+                play_sound_file(SFX.get("3"))
             else:
-                playSound(CLIPS.get("sfx4"))
+                play_sound_file(SFX.get("4"))
         
-        elif(recd_dtmf == "#"): # More Information
+        elif(recd_dtmf == "*"): # More Information
             log(0, "Playing more information.")
-            playSound(CLIPS.get("moreInfo"))
+            play_sound_file(CLIPS.get("more_info"))
 
         else: # Default to menu (1)
             log(1, "User choice " + recd_dtmf + " is invalid. Defaulting to main menu.")
-            playSound(CLIPS.get("mainMenu"))
+            play_sound_file(CLIPS.get("main_menu"))
 
         # At the end of every transmission:
-        playSound(CLIPS.get("end"))
+        play_sound_file(CLIPS.get("end"))
         log(0, "Transmission ended.")
         sleep(5) # Transmission cooldown
 
