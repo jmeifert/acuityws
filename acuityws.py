@@ -70,6 +70,12 @@ SFX = {
     "2" : "audio/sfx/2.mp3",
     "3" : "audio/sfx/3.mp3",
     "4" : "audio/sfx/4.mp3",
+    "5" : "audio/sfx/5.mp3",
+    "6" : "audio/sfx/6.mp3",
+    "7" : "audio/sfx/7.mp3",
+    "8" : "audio/sfx/8.mp3",
+    "9" : "audio/sfx/9.mp3",
+    "0" : "audio/sfx/0.mp3",
 }
 
 ################################################################################ LOGGING
@@ -299,7 +305,7 @@ while(True):
                 log(2, "SSTV applet encountered an exception: " + str(e) + ".")
                 play_sound_file(CLIPS.get("api_error"))
 
-        elif(recd_dtmf == "*"): # SFX Easter Egg
+        elif(recd_dtmf == "#"): # SFX Easter Egg
             log(0, "User is playing a sound effect.")
             userOption = get_dtmf_input()
             sleep(1)
@@ -310,8 +316,20 @@ while(True):
                 play_sound_file(SFX.get("2"))
             elif(userOption == "3"):
                 play_sound_file(SFX.get("3"))
-            else:
+            elif(userOption == "4"):
                 play_sound_file(SFX.get("4"))
+            elif(userOption == "5"):
+                play_sound_file(SFX.get("5"))
+            elif(userOption == "6"):
+                play_sound_file(SFX.get("6"))
+            elif(userOption == "7"):
+                play_sound_file(SFX.get("7"))
+            elif(userOption == "8"):
+                play_sound_file(SFX.get("8"))
+            elif(userOption == "9"):
+                play_sound_file(SFX.get("9"))
+            else:
+                play_sound_file(SFX.get("0"))
         
         elif(recd_dtmf == "*"): # More Information
             log(0, "Playing more information.")
