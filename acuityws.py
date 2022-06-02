@@ -200,10 +200,13 @@ def play_sound_file(filename):
 def get_dtmf_input():
     play_sound_file(CLIPS.get("input_prompt"))
     output = ""
+    i = ""
     while(i != "#"):
-        output += get_next_dtmf()
+        i = get_next_dtmf()
+        output += i
         sleep(0.5)
     sleep(0.5)
+    output = output.rstrip("#")
     play_sound_file(CLIPS.get("ack"))
     return output
 
